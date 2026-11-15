@@ -3,8 +3,6 @@ This software brings you the possibility to Read and Write the internal Flash of
 
 The following CC Microcontroller are supported right now: CC1110, CC2430(up to 64kb), CC2431(up to 64kb), CC2510 and CC2511
 
-### You can support my work via PayPal: https://paypal.me/hoverboard1 this keeps projects like this coming.
-
 To flash an CC Microcontroller connect the following pins:
 CC-DebugData to ESP-23
 CC-DebugClock to ESP-19
