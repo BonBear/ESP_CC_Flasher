@@ -360,12 +360,17 @@ uint8_t CC_interface::cc_receive_byte()
 
 void CC_interface::enable_cc_debug()
 {
-  if (dd_direction == 0)
-  {
-    dd_direction = 1;
-    pinMode(_DD_PIN, INPUT);
-    digitalWrite(_DD_PIN, HIGH);
-  }
+  pinMode(_CC_PIN, OUTPUT);
+  pinMode(_DD_PIN, OUTPUT);
+  pinMode(_RESET_PIN, OUTPUT);
+  digitalWrite(_CC_PIN, LOW);
+  digitalWrite(_DD_PIN, HIGH);
+  digitalWrite(_RESET_PIN, HIGH);
+
+  dd_direction = 1;
+  pinMode(_DD_PIN, INPUT);
+  digitalWrite(_DD_PIN, HIGH);
+
   delay(5);
   digitalWrite(_RESET_PIN, LOW);
   delay(2);
@@ -383,17 +388,17 @@ void CC_interface::enable_cc_debug()
 
 void CC_interface::reset_cc()
 {
-  if (dd_direction == 0)
-  {
-    dd_direction = 1;
-    pinMode(_DD_PIN, INPUT);
-    digitalWrite(_DD_PIN, HIGH);
-  }
-  delay(5);
+  if (_RESET_PIN == (uint8_t)-1)   // begin() not called yet (e.g. EXIT right after a reboot)
+    return;
+  dd_direction = 1;
+  pinMode(_CC_PIN, INPUT);
+  pinMode(_DD_PIN, INPUT);
+  pinMode(_RESET_PIN, OUTPUT);
   digitalWrite(_RESET_PIN, LOW);
-  delay(5);
+  delay(20);
   digitalWrite(_RESET_PIN, HIGH);
-  delay(2);
+  delay(20);
+  pinMode(_RESET_PIN, INPUT_PULLUP);
 }
 
 CC_interface cc;

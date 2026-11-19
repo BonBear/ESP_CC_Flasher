@@ -99,7 +99,7 @@ void http_get_status(AsyncWebServerRequest *request)
 
 void http_cc_erase(AsyncWebServerRequest *request)
 {
-  uint16_t device_id = cc.begin(CCDEBUG_CLK, CCDEBUG_DATA, CCDEBUG_RESET);
+  uint16_t device_id = cc.begin(CC_DC, CC_DD, CC_RST);
   add_web_log("Device id: " + array_to_hex_string((uint8_t *)&device_id, 2, true));
   add_web_log(array_to_hex_string((uint8_t *)&device_id, 2, true), 2);
   add_web_log("Chip erasing");
@@ -130,7 +130,7 @@ void http_cc_debug_exit(AsyncWebServerRequest *request)
 void http_cc_init(AsyncWebServerRequest *request)
 {
   AsyncResponseStream *response = request->beginResponseStream("text/plain");
-  uint16_t device_id = cc.begin(CCDEBUG_CLK, CCDEBUG_DATA, CCDEBUG_RESET);
+  uint16_t device_id = cc.begin(CC_DC, CC_DD, CC_RST);
   uint8_t status_byte = cc.send_cc_cmdS(0x34);
   response->printf("Device id: %04x Status: %02X", device_id, status_byte);
   add_web_log("Device id: " + array_to_hex_string((uint8_t *)&device_id, 2, true) + " Status: " + array_to_hex_string((uint8_t *)&status_byte, 1, true));
@@ -251,19 +251,113 @@ void http_cc_lock_byte(AsyncWebServerRequest *request)
   request->send(response);
 }
 
+void http_cc_read_radio(AsyncWebServerRequest *request)
+{
+  AsyncResponseStream *response = request->beginResponseStream("application/json");
+  bool no_reset = request->hasParam("no_reset");
+  uint16_t dev_id = 0;
+  if (!no_reset) {
+    dev_id = cc.begin(CC_DC, CC_DD, CC_RST);
+  }
+  uint8_t status = cc.send_cc_cmdS(0x34);
+
+  uint8_t regs[64] = {0};
+  cc.read_xdata_memory(0xDF00, 64, regs);
+
+  uint8_t p0_val = cc.opcode(0xE5, 0x80);
+  uint8_t p1_val = cc.opcode(0xE5, 0x90);
+  uint8_t p2_val = cc.opcode(0xE5, 0xA0);
+
+  if (!no_reset) {
+    cc.reset_cc();
+  }
+
+  response->printf("{\n");
+  response->printf("  \"deviceId\": \"0x%04X\",\n", dev_id);
+  response->printf("  \"status\": \"0x%02X\",\n", status);
+  response->printf("  \"P0\": \"0x%02X\", \"P1\": \"0x%02X\", \"P2\": \"0x%02X\",\n", p0_val, p1_val, p2_val);
+  response->printf("  \"MARCSTATE\": \"0x%02X\",\n", regs[0x3B]);
+  response->printf("  \"PKTSTATUS\": \"0x%02X\",\n", regs[0x3C]);
+  response->printf("  \"FREQEST\": \"0x%02X\",\n", regs[0x38]);
+  response->printf("  \"FSCAL0\": \"0x%02X\",\n", regs[0x1F]);
+  response->printf("  \"PA_TABLE0\": \"0x%02X\",\n", regs[0x2E]);
+  response->printf("  \"FREQ2\": \"0x%02X\", \"FREQ1\": \"0x%02X\", \"FREQ0\": \"0x%02X\",\n", regs[0x09], regs[0x0A], regs[0x0B]);
+  response->printf("  \"PKTCTRL0\": \"0x%02X\", \"PKTLEN\": \"0x%02X\"\n", regs[0x04], regs[0x02]);
+  response->printf("}\n");
+  request->send(response);
+}
+
+void http_cc_read_pins(AsyncWebServerRequest *request)
+{
+  pinMode(CC_DC, INPUT);
+  pinMode(CC_DD, INPUT);
+  pinMode(CC_RST, INPUT_PULLUP);
+  int dc = digitalRead(CC_DC);
+  int dd = digitalRead(CC_DD);
+  int rst = digitalRead(CC_RST);
+  char buf[64];
+  snprintf(buf, sizeof(buf), "DC(19):%d DD(23):%d RST(33):%d\n", dc, dd, rst);
+  request->send(200, "text/plain", buf);
+}
+
+void http_cc_read_xdata(AsyncWebServerRequest *request)
+{
+  AsyncResponseStream *response = request->beginResponseStream("text/plain");
+  uint16_t addr = 0xF000;
+  uint16_t len = 16;
+  if (request->hasParam("addr")) {
+    addr = strtoul(request->getParam("addr")->value().c_str(), NULL, 16);
+  }
+  if (request->hasParam("len")) {
+    len = request->getParam("len")->value().toInt();
+    if (len > 256) len = 256;
+  }
+  cc.begin(CC_DC, CC_DD, CC_RST);
+  uint8_t buf[256];
+  cc.read_xdata_memory(addr, len, buf);
+  cc.reset_cc();
+  for (uint16_t i = 0; i < len; i++) {
+    response->printf("%02X ", buf[i]);
+  }
+  response->printf("\n");
+  request->send(response);
+}
+
+void http_cc_resume(AsyncWebServerRequest *request)
+{
+  AsyncResponseStream *response = request->beginResponseStream("text/plain");
+  cc.send_cc_cmdS(0x4C);
+  uint8_t status = cc.send_cc_cmdS(0x34);
+  response->printf("Resumed. Status: %02X\n", status);
+  request->send(response);
+}
+
 void init_web()
 {
 #ifdef STATIC_WIFI
   WiFi.mode(WIFI_STA);
+#if defined(CONFIG_IDF_TARGET_ESP32C3)
+  // The C3 Super Mini's small antenna does not connect at full power (the station never gets an
+  // IP); 8.5 dBm is the usual fix for these boards.
+  WiFi.setTxPower(WIFI_POWER_8_5dBm);
+#else
+  WiFi.setTxPower(WIFI_POWER_19_5dBm);
+#endif
   WiFi.begin(WIFI_NAME, WIFI_PWD);
+  WiFi.setAutoReconnect(true);
   Serial.print("Connecting to WiFi ..");
-  while (WiFi.status() != WL_CONNECTED)
+  // Do not block forever without WiFi: the USB serial commands (serial_cmd.cpp) work
+  // without it, and the station keeps reconnecting in the background.
+  for (int i = 0; i < 15 && WiFi.status() != WL_CONNECTED; i++)
   {
     Serial.print('.');
     delay(1000);
   }
+  if (WiFi.status() != WL_CONNECTED)
+    Serial.println("\r\nNo WiFi yet, continuing (USB serial commands available)");
 #else
   WiFi.mode(WIFI_STA);
+  WiFi.setTxPower(WIFI_POWER_19_5dBm);
   WiFiManager wm;
   bool res;
   res = wm.autoConnect("AutoConnectAP");
@@ -273,20 +367,22 @@ void init_web()
     ESP.restart();
   }
 #endif
+  // No Wi-Fi modem sleep: with it every HTTP request waited for the next DTIM wake-up
+  // (hundreds of ms), which made the web UI and its status polling sluggish.
+  WiFi.setSleep(false);
   Serial.println("\r\nConnected! IP address: ");
   Serial.println(WiFi.localIP());
 
-  // Make accessible via http://cc.local using mDNS responder
-  if (!MDNS.begin("cc"))
+  // Make accessible via http://<CC_MDNS_NAME>.local (default cc.local) using mDNS responder
+  if (!MDNS.begin(CC_MDNS_NAME))
   {
     Serial.println("Error setting up mDNS responder!");
-    while (1)
-    {
-      delay(1000);
-    }
   }
-  Serial.println("mDNS responder started");
-  MDNS.addService("http", "tcp", 80);
+  else
+  {
+    Serial.println("mDNS responder started: http://" CC_MDNS_NAME ".local");
+    MDNS.addService("http", "tcp", 80);
+  }
 
   server.addHandler(new SPIFFSEditor(SPIFFS, http_username, http_password));
 
@@ -299,6 +395,10 @@ void init_web()
   server.on("/cc_enter_dbg", HTTP_ANY, http_cc_debug_enter);
   server.on("/cc_exit_dbg", HTTP_ANY, http_cc_debug_exit);
   server.on("/erase_cc", HTTP_ANY, http_cc_erase);
+  server.on("/read_radio", HTTP_ANY, http_cc_read_radio);
+  server.on("/read_xdata", HTTP_ANY, http_cc_read_xdata);
+  server.on("/resume_cc", HTTP_ANY, http_cc_resume);
+  server.on("/read_pins", HTTP_ANY, http_cc_read_pins);
 
   server.on("/heap", HTTP_ANY, [](AsyncWebServerRequest *request)
             { request->send(200, "text/plain", String(ESP.getFreeHeap())); });

@@ -7,6 +7,7 @@
 #include "utils.h"
 #include "spiffs.h"
 #include "cc_interface.h"
+#include "serial_cmd.h"
 #include <FS.h>
 #if defined(ESP32)
 #include "SPIFFS.h"
@@ -38,7 +39,7 @@ void flash_firmware()
   file.seek(0, SeekSet);
   file.read(ptr, flashing_size);
   file.close();
-  uint16_t device_id = cc.begin(CCDEBUG_CLK, CCDEBUG_DATA, CCDEBUG_RESET);
+  uint16_t device_id = cc.begin(CC_DC, CC_DD, CC_RST);
   add_web_log("Device id: " + array_to_hex_string((uint8_t *)&device_id, 2, true));
   add_web_log(array_to_hex_string((uint8_t *)&device_id, 2, true), 2);
   add_web_log("Chip erasing");
@@ -98,7 +99,7 @@ void dump_firmware()
     return;
   }
 
-  uint16_t device_id = cc.begin(CCDEBUG_CLK, CCDEBUG_DATA, CCDEBUG_RESET);
+  uint16_t device_id = cc.begin(CC_DC, CC_DD, CC_RST);
   add_web_log("Device id: " + array_to_hex_string((uint8_t *)&device_id, 2, true));
   add_web_log("Reading flash start");
   cc.read_code_memory(0x0000, dumping_size, ptr);
@@ -117,17 +118,25 @@ void procent_callback(uint8_t percent)
 
 void setup()
 {
+  Serial.setRxBufferSize(4096);
+#if defined(CONFIG_IDF_TARGET_ESP32C3)
+  // The C3's native USB port (HWCDC) has a 256-byte receive buffer and drops what does not fit:
+  // a FLASH image sent in one write lost ~4 kB. Room for a whole CC1110 image (32 kB) avoids it.
+  Serial.setRxBufferSize(32768);
+#endif
   Serial.begin(115200);
   delay(1000);
   Serial.println("\r\n\r\nWelcome to CC Flasher\r\n");
   SPIFFS.begin(true);
   init_web();
+  serial_cmd_begin();
   Serial.println("\r\nSetup done\r\n");
   cc.set_callback(procent_callback);
 }
 
 void loop()
 {
+  serial_cmd_loop();
   if (should_do_firmware_flashing)
     flash_firmware();
   if (should_do_firmware_dumping)
