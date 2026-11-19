@@ -2096,7 +2096,11 @@ String WiFiManager::getInfoData(String id){
     p = FPSTR(HTTP_INFO_temp);
     p.replace(FPSTR(T_1),(String)temperatureRead());
     p.replace(FPSTR(T_2),(String)((temperatureRead()+32)*1.8));
+    #if defined(CONFIG_IDF_TARGET_ESP32C3)
+    p.replace(FPSTR(T_3), "0");
+    #else
     p.replace(FPSTR(T_3),(String)hallRead());
+    #endif
   }
   #endif
   return p;
@@ -3437,7 +3441,7 @@ String WiFiManager::WiFi_psk(bool persistent) const {
 }
 
 #ifdef ESP32
-void WiFiManager::WiFiEvent(WiFiEvent_t event,system_event_info_t info){
+void WiFiManager::WiFiEvent(WiFiEvent_t event,arduino_event_info_t info){
     if(!_hasBegun){
     #ifdef WM_DEBUG_LEVEL
       // DEBUG_WM(DEBUG_VERBOSE,"[ERROR] WiFiEvent, not ready");
@@ -3449,15 +3453,15 @@ void WiFiManager::WiFiEvent(WiFiEvent_t event,system_event_info_t info){
     // DEBUG_WM(DEBUG_VERBOSE,"[EVENT]",event);
     #endif
 
-    if(event == SYSTEM_EVENT_STA_DISCONNECTED){
+    if(event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED){
     #ifdef WM_DEBUG_LEVEL
-      DEBUG_WM(DEBUG_VERBOSE,F("[EVENT] WIFI_REASON: "),info.disconnected.reason);
+      DEBUG_WM(DEBUG_VERBOSE,F("[EVENT] WIFI_REASON: "),info.wifi_sta_disconnected.reason);
       #endif
-      if(info.disconnected.reason == WIFI_REASON_AUTH_EXPIRE || info.disconnected.reason == WIFI_REASON_AUTH_FAIL){
+      if(info.wifi_sta_disconnected.reason == WIFI_REASON_AUTH_EXPIRE || info.wifi_sta_disconnected.reason == WIFI_REASON_AUTH_FAIL){
         _lastconxresulttmp = 7; // hack in wrong password internally, sdk emit WIFI_REASON_AUTH_EXPIRE on some routers on auth_fail
       } else _lastconxresulttmp = WiFi.status();
       #ifdef WM_DEBUG_LEVEL
-      if(info.disconnected.reason == WIFI_REASON_NO_AP_FOUND) DEBUG_WM(DEBUG_VERBOSE,F("[EVENT] WIFI_REASON: NO_AP_FOUND"));
+      if(info.wifi_sta_disconnected.reason == WIFI_REASON_NO_AP_FOUND) DEBUG_WM(DEBUG_VERBOSE,F("[EVENT] WIFI_REASON: NO_AP_FOUND"));
       #endif
       #ifdef esp32autoreconnect
       #ifdef WM_DEBUG_LEVEL
@@ -3466,7 +3470,7 @@ void WiFiManager::WiFiEvent(WiFiEvent_t event,system_event_info_t info){
         WiFi.reconnect();
       #endif
   }
-  else if(event == SYSTEM_EVENT_SCAN_DONE){
+  else if(event == ARDUINO_EVENT_WIFI_SCAN_DONE){
     uint16_t scans = WiFi.scanComplete();
     WiFi_scanComplete(scans);
   }

@@ -568,7 +568,7 @@ class WiFiManager
     bool          WiFiSetCountry();
 
     #ifdef ESP32
-    void   WiFiEvent(WiFiEvent_t event, system_event_info_t info);
+    void   WiFiEvent(WiFiEvent_t event, arduino_event_info_t info);
     #endif
 
     // output helpers
