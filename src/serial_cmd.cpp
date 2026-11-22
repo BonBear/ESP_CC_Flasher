@@ -3,6 +3,7 @@
 #include "cc_interface.h"
 
 #define SERIAL_MAX_IMAGE (32 * 1024)   // CC1110F32 flash size
+#define SERIAL_MAX_READ  4096          // max bytes per READ command
 #define SERIAL_RX_TIMEOUT_MS 5000
 
 static char s_line[64];
@@ -78,6 +79,56 @@ static void serial_flash(size_t len, uint32_t crc)
   free(buf);
   cc.reset_cc();
   Serial.println(ok ? "#DONE OK" : "#DONE VERIFY_FAIL");
+}
+
+static void serial_read(unsigned long addr, unsigned long len)
+{
+  if (len == 0 || len > SERIAL_MAX_READ || addr > SERIAL_MAX_IMAGE || len > SERIAL_MAX_IMAGE - addr)
+  {
+    Serial.println("#ERR range");
+    return;
+  }
+  uint16_t device_id = cc.begin(CC_DC, CC_DD, CC_RST);
+  uint8_t status = cc.send_cc_cmdS(0x34);
+  if (device_id == 0x0000 || device_id == 0xFFFF)
+  {
+    cc.reset_cc();
+    Serial.println("#ERR no_target");
+    return;
+  }
+  if (status & 0x04)
+  {
+    cc.reset_cc();
+    Serial.println("#ERR locked");
+    return;
+  }
+  uint8_t *buf = (uint8_t *)malloc(len);
+  if (!buf)
+  {
+    cc.reset_cc();
+    Serial.println("#ERR memory");
+    return;
+  }
+  cc.read_code_memory((uint16_t)addr, (uint16_t)len, buf);
+  cc.reset_cc();
+
+  uint32_t crc = crc32_zlib(buf, len);
+  Serial.printf("#DATA %lu %08lx\n", len, (unsigned long)crc);
+  static const char HEX_DIGITS[] = "0123456789abcdef";
+  for (size_t i = 0; i < len; i += 32)
+  {
+    size_t chunk = (len - i < 32) ? (len - i) : 32;
+    char hex[65];
+    for (size_t j = 0; j < chunk; j++)
+    {
+      hex[2 * j] = HEX_DIGITS[buf[i + j] >> 4];
+      hex[2 * j + 1] = HEX_DIGITS[buf[i + j] & 0x0F];
+    }
+    hex[2 * chunk] = '\0';
+    Serial.println(hex);
+  }
+  free(buf);
+  Serial.println("#DONE OK");
 }
 
 // ---- wiring check: drive or read DD / DC / RST by hand (no debug protocol) ----
@@ -169,6 +220,17 @@ static void handle_line(char *line)
   else if (strncmp(line, "BLINK ", 6) == 0)
   {
     cmd_blink(line + 6);
+  }
+  else if (strncmp(line, "READ ", 5) == 0)
+  {
+    unsigned long addr = 0;
+    unsigned long len = 0;
+    if (sscanf(line + 5, "%lx %lu", &addr, &len) != 2)
+    {
+      Serial.println("#ERR usage: READ <addr hex> <len>");
+      return;
+    }
+    serial_read(addr, len);
   }
   else if (strncmp(line, "FLASH ", 6) == 0)
   {
