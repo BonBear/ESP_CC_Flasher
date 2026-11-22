@@ -56,8 +56,10 @@ mDNS: the flasher answers at `http://cc.local`; the `esp32-c3-supermini` environ
 
 USB serial commands (115200 baud, one per line, answers start with `#`): `PING`, `INIT`
 (debug mode, prints the chip ID and status), `EXIT` (reset the target and let it run),
-`PINS`, `PIN <n> <0|1|Z|U|D>`, `BLINK <n>` and `FLASH <len> <crc32 hex>` followed by the
-image bytes (the flasher erases, writes, verifies and resets the target).
+`PINS`, `PIN <n> <0|1|Z|U|D>`, `BLINK <n>`, `READ <addr hex> <len>` (reads 1..4096 bytes of
+flash and returns `#DATA <len> <crc32>`, lowercase hex lines, and `#DONE OK`, then resets the
+target), and `FLASH <len> <crc32 hex>` followed by the image bytes (the flasher erases, writes,
+verifies and resets the target).
 Enter your Wifi Credentials or leave it on Managed and Connect to the Created Wifi Netowrk after Upload to config the Wifi
 
 Connect to http://cc.local/edit and upload the index.htm file to the esp32, open http://cc.local and start using it :)

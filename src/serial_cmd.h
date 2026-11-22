@@ -6,6 +6,9 @@
 //   PING                 -> #PONG
 //   INIT                 -> #INIT <device id hex> <status hex>   (enters debug mode)
 //   EXIT                 -> #EXIT                                 (reset, run firmware)
+//   READ <addr> <len>    -> #DATA <len> <crc32>, then lowercase hex lines (32 B/line),
+//                           then #DONE OK (resets target); or #ERR <reason>.
+//                           <addr> is hex, <len> is decimal (1..4096, within 32 KB flash).
 //   FLASH <len> <crc32>  -> #READY, then send <len> raw bytes -> #GOT, then
 //                           #DONE OK | #DONE VERIFY_FAIL, or #ERR <reason>
 // <len> and <crc32> are decimal and hex; crc32 is the zlib CRC-32 of the image.
